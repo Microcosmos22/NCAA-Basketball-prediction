@@ -5,7 +5,7 @@ import pandas as pd
 import tensorflow as tf
 from tqdm.auto import tqdm
 
-team_season_stats = pd.read_csv("../perteam_perseason_stats.csv")
+team_season_stats = pd.read_csv("./perteam_perseason_stats.csv")
 
 def match_features_fromIDs(teamID1, teamID2, season):
     """
@@ -49,6 +49,8 @@ def match_features_fromIDs(teamID1, teamID2, season):
     return match_features
 
 if __name__ == "__main__":
+    import re
+    
     Mgames = pd.concat([MRegulargames, MNCAAgames])[["Season", "DayNum", "WTeamID", "LTeamID"]][:1000]
     Mgameswon = Mgames.rename(columns={"WTeamID":"Team1ID", "LTeamID":"Team2ID"})
     Mgameswon["Win"] = 1
@@ -62,15 +64,33 @@ if __name__ == "__main__":
     print("Number of wins (y=1):", Mgamestrain["Win"].sum())
     print("Number of losses (y=0):", (Mgamestrain["Win"] == 0).sum())
 
-    y = Mgamestrain["Win"]
-    X = []
-    for i in range(len(Mgamestrain)):
+    X_list = []
+    y_list = []
 
-        features = match_features_fromIDs(Mgamestrain.iloc[i]["Team1ID"], Mgamestrain.iloc[i]["Team2ID"], Mgamestrain.iloc[i]["Season"])
+    for i in range(len(Mgamestrain)):
+        row = Mgamestrain.iloc[i]
+
+        features = match_features_fromIDs(
+            row["Team1ID"],
+            row["Team2ID"],
+            row["Season"]
+        )
+
         if features.empty:
             continue
-        X.append(features)
-    X = pd.concat(X, ignore_index=True)  # combine all single-row DataFrames
+
+        X_list.append(features.iloc[0])  # append row, not DataFrame
+        y_list.append(row["Win"])
+
+    X = pd.DataFrame(X_list).drop(columns=["Seasontype"])
+    X.columns = [
+        re.sub(r'[^A-Za-z0-9_]+', '_', col)
+        for col in X.columns
+    ]
+    y = pd.Series(y_list)
+
+    print("X shape:", X.shape)
+    print("y shape:", y.shape)
 
     import lightgbm as lgb
     from sklearn.model_selection import train_test_split
@@ -106,10 +126,11 @@ if __name__ == "__main__":
     model = lgb.train(
         params,
         train_data,
-        num_boost_round=1000,
-        valid_sets=[train_data, val_data],
-        early_stopping_rounds=50,
-        verbose_eval=1
+        valid_sets=val_data,
+        callbacks=[
+            lgb.early_stopping(stopping_rounds=50),
+            lgb.log_evaluation(period=5)
+        ]
     )
 
     # Make predictions

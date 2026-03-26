@@ -5,7 +5,7 @@ import pandas as pd
 import tensorflow as tf
 from tqdm.auto import tqdm
 
-DATA = Path("../data")
+DATA = Path("./data")
 
 CFG = {'train_path': DATA / "train.csv"
 
@@ -103,9 +103,9 @@ def compute_rolling_seasonal_stats(twoteam_level):
     )
     return team_season_stats
 
-def create_winrows_loserows():
+def create_winrows_loserows(Regulargames):
     winrows = pd.DataFrame({})
-    winrows = MRegulargames[[
+    winrows = Regulargames[[
         "Season", "DayNum",
         "WTeamID", "LTeamID",
         "WScore", "LScore",
@@ -165,7 +165,7 @@ def create_winrows_loserows():
     winrows["Seasontype"] = "regular"
 
     loserows = pd.DataFrame({})
-    loserows = MRegulargames[[
+    loserows = Regulargames[[
         "Season", "DayNum",
         "WTeamID", "LTeamID",
         "WScore", "LScore",
@@ -222,11 +222,11 @@ def create_winrows_loserows():
 
     return winrows, loserows
 
-MRegulargames = pd.read_csv("../data/MRegularSeasonDetailedResults.csv")
-MNCAAgames = pd.read_csv("../data/MNCAATourneyCompactResults.csv")
-MNCAATourneySeeds = pd.read_csv("../data/MNCAATourneySeeds.csv")
-MTeams = pd.read_csv("../data/MTeams.csv")
-MMasseyOrdinals = pd.read_csv("../data/MMasseyOrdinals.csv")
+MRegulargames = pd.read_csv("data/MRegularSeasonDetailedResults.csv")
+MNCAAgames = pd.read_csv("data/MNCAATourneyCompactResults.csv")
+MNCAATourneySeeds = pd.read_csv("data/MNCAATourneySeeds.csv")
+MTeams = pd.read_csv("data/MTeams.csv")
+MMasseyOrdinals = pd.read_csv("data/MMasseyOrdinals.csv")
 
 if __name__ == "__main__":
     #MRegularSeasonDetailedResults = pd.read_csv("data/MRegularSeasonDetailedResults.csv")
@@ -239,7 +239,6 @@ if __name__ == "__main__":
     pd[team][season][seasontype] stats with groupby #################### """
 
     winrows, loserows = create_winrows_loserows()
-
     twoteam_level = pd.concat([winrows.copy(), loserows.copy()], ignore_index=True)
 
     """ ################## Double the NCAA games so that we can count the
