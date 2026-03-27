@@ -7,18 +7,27 @@ from tqdm.auto import tqdm
 
 team_season_stats = pd.read_csv("./perteam_perseason_stats.csv")
 
-def match_features_fromIDs(teamID1, teamID2, season):
+def match_features_fromIDs(teamID1, teamID2, season, team_season_stats, elo_df=None, massey_df=None, sos_df=None, seed_df=None):
     """
-    Go to last season, compute average stats for teamA and team B.
-    The difference will be the input feature vector
+    Compute matchup-level feature vector using non-rolling, season-level stats.
+    Includes: Season aggregates, Elo, Massey, SOS, Seed features.
     """
-    team_a_stats = team_season_stats.query("TeamID == "+str(teamID1)+" and Season < " + str(season)).sort_values("Season").tail(1)
-    team_b_stats = team_season_stats.query("TeamID == "+str(teamID2)+" and Season < " + str(season)).sort_values("Season").tail(1)
 
+    # Get last completed season stats for each team
+    team_a_stats = team_season_stats.query(
+        f"TeamID == {teamID1} and Season < {season}"
+    ).sort_values("Season").tail(1)
+
+    team_b_stats = team_season_stats.query(
+        f"TeamID == {teamID2} and Season < {season}"
+    ).sort_values("Season").tail(1)
+
+    # Skip if no stats available
     if team_a_stats.empty or team_b_stats.empty:
-        return team_a_stats
+        return pd.DataFrame()
 
-    match_features = pd.DataFrame([{
+    # Base season aggregates
+    match_features = {
         "PointsForDiff": team_a_stats["AvgPointsFor"].values[0] - team_b_stats["AvgPointsFor"].values[0],
         "PointsAgainstDiff": team_a_stats["AvgPointsAgainst"].values[0] - team_b_stats["AvgPointsAgainst"].values[0],
         "WinRateDiff": team_a_stats["WinRate"].values[0] - team_b_stats["WinRate"].values[0],
@@ -26,32 +35,66 @@ def match_features_fromIDs(teamID1, teamID2, season):
         # Shooting efficiency
         "FG_pctDiff": team_a_stats["FG_pct"].values[0] - team_b_stats["FG_pct"].values[0],
         "OppFG_pctDiff": team_a_stats["OppFG_pct"].values[0] - team_b_stats["OppFG_pct"].values[0],
-        "ReboundDiffDiff": team_a_stats["ReboundDiff"].values[0] - team_b_stats["ReboundDiff"].values[0],
-        "TurnoverMarginDiff": team_a_stats["TurnoverMargin"].values[0] - team_b_stats["TurnoverMargin"].values[0],
+
+        # Rebounds / turnovers
+        "ReboundDiff": team_a_stats["ReboundDiff"].values[0] - team_b_stats["ReboundDiff"].values[0],
+        "TurnoverMargin": team_a_stats["TurnoverMargin"].values[0] - team_b_stats["TurnoverMargin"].values[0],
 
         # Offensive / defensive volume
-        "FGA_diff": team_a_stats["FGA_sofar"].values[0] - team_b_stats["FGA_sofar"].values[0],
-        "FGA3_diff": team_a_stats["FGA3"].values[0] - team_b_stats["FGA3"].values[0],
-        "FTA_diff": team_a_stats["FTA"].values[0] - team_b_stats["FTA"].values[0],
+        "FGA_diff": team_a_stats["FGA"].values[0] - team_b_stats["FGA"].values[0],
+        "FGA3_diff": team_a_stats.get("FGA3", 0).values[0] - team_b_stats.get("FGA3", 0).values[0],
+        "FTA_diff": team_a_stats.get("FTA", 0).values[0] - team_b_stats.get("FTA", 0).values[0],
 
         # Rebounds and assists
-        "OR_diff": team_a_stats["OR_sofar"].values[0] - team_b_stats["OR_sofar"].values[0],
-        "DR_diff": team_a_stats["DR_sofar"].values[0] - team_b_stats["DR_sofar"].values[0],
-        "Ast_diff": team_a_stats["Ast"].values[0] - team_b_stats["Ast"].values[0],
+        "OR_diff": team_a_stats["OR"].values[0] - team_b_stats["OR"].values[0],
+        "DR_diff": team_a_stats["DR"].values[0] - team_b_stats["DR"].values[0],
+        "Ast_diff": team_a_stats.get("Ast", 0).values[0] - team_b_stats.get("Ast", 0).values[0],
 
         # Turnovers / fouls
-        "TO_diff": team_a_stats["TO_sofar"].values[0] - team_b_stats["TO_sofar"].values[0],
-        "PF_diff": team_a_stats["PF"].values[0] - team_b_stats["PF"].values[0],
+        "TO_diff": team_a_stats["TO"].values[0] - team_b_stats["TO"].values[0],
+        "PF_diff": team_a_stats.get("PF", 0).values[0] - team_b_stats.get("PF", 0).values[0],
 
         # Home advantage
-        "HomeTeam": 1 if team_a_stats["WLoc"].values[0] == "H" else 0
-    }])
-    return match_features
+        "HomeTeam": 1 if team_a_stats.get("WLoc", "N").values[0] == "H" else 0,
+    }
+
+    # Elo difference
+    if elo_df is not None:
+        elo_a = elo_df.query(f"TeamID == {teamID1} and Season < {season}").sort_values("Season").tail(1)
+        elo_b = elo_df.query(f"TeamID == {teamID2} and Season < {season}").sort_values("Season").tail(1)
+        match_features["EloDiff"] = (elo_a["Elo"].values[0] if not elo_a.empty else 1500) - \
+                                    (elo_b["Elo"].values[0] if not elo_b.empty else 1500)
+
+    # Massey rankings difference
+    if massey_df is not None:
+        massey_a = massey_df.query(f"TeamID == {teamID1} and Season < {season}").sort_values("Season").tail(1)
+        massey_b = massey_df.query(f"TeamID == {teamID2} and Season < {season}").sort_values("Season").tail(1)
+        match_features["MasseyDiff"] = (massey_a["OrdinalRank"].values[0] if not massey_a.empty else 999) - \
+                                       (massey_b["OrdinalRank"].values[0] if not massey_b.empty else 999)
+
+    # SOS difference
+    if sos_df is not None:
+        sos_a = sos_df.query(f"TeamID == {teamID1} and Season < {season}").sort_values("Season").tail(1)
+        sos_b = sos_df.query(f"TeamID == {teamID2} and Season < {season}").sort_values("Season").tail(1)
+        match_features["SOSDiff"] = (sos_a["SOS"].values[0] if not sos_a.empty else 0) - \
+                                    (sos_b["SOS"].values[0] if not sos_b.empty else 0)
+
+    # Seed differences
+    if seed_df is not None:
+        seed_a = seed_df.query(f"TeamID == {teamID1} and Season == {season}")["Seed"].values
+        seed_b = seed_df.query(f"TeamID == {teamID2} and Season == {season}")["Seed"].values
+        seed_a_val = int(seed_a[0]) if len(seed_a) > 0 else 16
+        seed_b_val = int(seed_b[0]) if len(seed_b) > 0 else 16
+        match_features["SeedDiff"] = seed_a_val - seed_b_val
+        match_features["SeedDiff_sq"] = (seed_a_val - seed_b_val) ** 2
+
+    return pd.DataFrame([match_features])
 
 if __name__ == "__main__":
     import re
-    
-    Mgames = pd.concat([MRegulargames, MNCAAgames])[["Season", "DayNum", "WTeamID", "LTeamID"]][:1000]
+    N = 1
+
+    Mgames = pd.concat([MRegulargames, MNCAAgames])[["Season", "DayNum", "WTeamID", "LTeamID"]][:N]
     Mgameswon = Mgames.rename(columns={"WTeamID":"Team1ID", "LTeamID":"Team2ID"})
     Mgameswon["Win"] = 1
     Mgameslost = Mgames.rename(columns={"WTeamID":"Team2ID", "LTeamID":"Team1ID"})
