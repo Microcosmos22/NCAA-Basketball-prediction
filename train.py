@@ -5,7 +5,9 @@ import pandas as pd
 import tensorflow as tf
 from tqdm.auto import tqdm
 
-team_season_stats = pd.read_csv("./perteam_perseason_stats.csv")
+team_season_stats = pd.read_csv(".data/perteam_perseason_stats.csv")
+
+
 
 def match_features_fromIDs(teamID1, teamID2, season, team_season_stats, elo_df=None, massey_df=None, sos_df=None, seed_df=None):
     """
@@ -28,8 +30,14 @@ def match_features_fromIDs(teamID1, teamID2, season, team_season_stats, elo_df=N
 
     # Base season aggregates
     match_features = {
-        "PointsForDiff": team_a_stats["AvgPointsFor"].values[0] - team_b_stats["AvgPointsFor"].values[0],
-        "PointsAgainstDiff": team_a_stats["AvgPointsAgainst"].values[0] - team_b_stats["AvgPointsAgainst"].values[0],
+        "SeedDiff": team_a_stats["num_seed"].values[0] - team_b_stats["num_seed"].values[0],
+        "SeedDiff_sq": (team_a_stats["num_seed"].values[0] - team_b_stats["num_seed"].values[0])**2,
+        "AbsDiff_Seed": (team_a_stats["num_seed"].values[0] - team_b_stats["num_seed"].values[0]).abs(),
+        "NetRtgDiff": (team_a_stats["NetRtg_A"] - team_b_stats["NetRtg_B"]),
+        "SeedDiff_x_NetRtg": (team_a_stats["num_seed"].values[0] - team_b_stats["num_seed"].values[0])*(team_a_stats["NetRtg_A"] - team_b_stats["NetRtg_B"]),
+
+        "PointsForDiff": team_a_stats["PointsFor"].values[0] - team_b_stats["PointsFor"].values[0],
+        "PointsAgainstDiff": team_a_stats["PointsAgainst"].values[0] - team_b_stats["PointsAgainst"].values[0],
         "WinRateDiff": team_a_stats["WinRate"].values[0] - team_b_stats["WinRate"].values[0],
 
         # Shooting efficiency
@@ -42,8 +50,8 @@ def match_features_fromIDs(teamID1, teamID2, season, team_season_stats, elo_df=N
 
         # Offensive / defensive volume
         "FGA_diff": team_a_stats["FGA"].values[0] - team_b_stats["FGA"].values[0],
-        "FGA3_diff": team_a_stats.get("FGA3", 0).values[0] - team_b_stats.get("FGA3", 0).values[0],
-        "FTA_diff": team_a_stats.get("FTA", 0).values[0] - team_b_stats.get("FTA", 0).values[0],
+        #"FGA3_diff": team_a_stats.get("FGA3", 0).values[0] - team_b_stats.get("FGA3", 0).values[0],
+        #"FTA_diff": team_a_stats.get("FTA", 0).values[0] - team_b_stats.get("FTA", 0).values[0],
 
         # Rebounds and assists
         "OR_diff": team_a_stats["OR"].values[0] - team_b_stats["OR"].values[0],
