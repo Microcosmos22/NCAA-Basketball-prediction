@@ -21,25 +21,30 @@ def match_features_fromIDs(teamID1, teamID2, season, team_season_stats, elo_df=N
 
     # Get last completed season stats for each team
     team_a_stats = team_season_stats.query(
-        f"TeamID == {teamID1} and Season < {season}"
+        f"TeamID == {teamID1} and Season == {season-1}"
     ).sort_values("Season").tail(1)
 
     team_b_stats = team_season_stats.query(
-        f"TeamID == {teamID2} and Season < {season}"
+        f"TeamID == {teamID2} and Season == {season-1}"
     ).sort_values("Season").tail(1)
 
     # Skip if no stats available
     if team_a_stats.empty or team_b_stats.empty:
         return pd.DataFrame()
 
+    seed_diff = (
+        team_a_stats["num_seed"].values[0]
+        - team_b_stats["num_seed"].values[0]
+    )
+
     # Base season aggregates
     match_features = {
-        "SeedDiff": team_a_stats["num_seed"].values[0] - team_b_stats["num_seed"].values[0],
-        "HistSeedWP": float(hist_df[hist_df["SeedDiff"] == (team_a_stats["num_seed"].values[0] - team_b_stats["num_seed"].values[0])]),
+        "SeedDiff": seed_diff,
+        "HistSeedWP": hist_seed_wp.get(seed_diff, 0.5),
         "SeedDiff_sq": (team_a_stats["num_seed"].values[0] - team_b_stats["num_seed"].values[0])**2,
         "AbsDiff_Seed": np.abs(team_a_stats["num_seed"].values[0] - team_b_stats["num_seed"].values[0]),
-        "NetRtgDiff": float(team_a_stats["NetRtg"] - team_b_stats["NetRtg"]),
-        "SeedDiff_x_NetRtg": float(team_a_stats["num_seed"].values[0] - team_b_stats["num_seed"].values[0])*(team_a_stats["NetRtg"] - team_b_stats["NetRtg"]),
+        "NetRtgDiff": float(team_a_stats["NetRtg"].iloc[0] - team_b_stats["NetRtg"].iloc[0]),
+        "SeedDiff_x_NetRtg": float(team_a_stats["num_seed"].values[0] - team_b_stats["num_seed"].values[0])*float(team_a_stats["NetRtg"].iloc[0] - team_b_stats["NetRtg"].iloc[0]),
 
         "PointsForDiff": team_a_stats["PointsFor"].values[0] - team_b_stats["PointsFor"].values[0],
         "PointsAgainstDiff": team_a_stats["PointsAgainst"].values[0] - team_b_stats["PointsAgainst"].values[0],
