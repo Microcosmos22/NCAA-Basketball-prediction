@@ -155,7 +155,7 @@ def seed_to_features(seed):
         region = -1
         number = 16
 
-    return region, number
+    return number
 
 def compute_seasonal_stats(twoteam_level, massey_df=True, elo_df=None, sos_df=None):
     """
@@ -171,11 +171,7 @@ def compute_seasonal_stats(twoteam_level, massey_df=True, elo_df=None, sos_df=No
     g = twoteam_level.groupby(["TeamID", "Season", "Seasontype"])
 
     team_season_stats = twoteam_level.copy()
-    print(team_season_stats.columns)
-
-    # Cumulative totals (all games so far in season)
     team_season_stats["GamesPlayed"] = g.cumcount()
-    # Season averages (one row per season per team)
     season_aggs = team_season_stats.groupby(["TeamID", "Season"]).agg({
         "Win": "sum",
         "PointsFor": "sum",
@@ -191,11 +187,13 @@ def compute_seasonal_stats(twoteam_level, massey_df=True, elo_df=None, sos_df=No
         "OppDR": "sum",
         "TO": "sum",
         "OppTO": "sum",
+
     }).reset_index()
-    print(team_season_stats.head())
-    print(season_aggs.head())
-    print(team_season_stats["Season"].unique())
-    print(season_aggs["Season"].unique())
+    season_aggs = season_aggs.merge(
+        teamid_seed[["Season", "TeamID", "num_seed"]],
+        on=["Season", "TeamID"],
+        how="left"
+    )
 
     # Win rate
     season_aggs["AvgPointsFor"] = season_aggs["PointsFor"] / season_aggs["GamesPlayed"]
@@ -209,9 +207,6 @@ def compute_seasonal_stats(twoteam_level, massey_df=True, elo_df=None, sos_df=No
     season_aggs.rename(columns={"Season_x": "Season"}, inplace=True)
 
     # Merge optional features
-
-    print(season_aggs.shape)
-
     if massey_df is not None:
         systems_to_use = ["POM", "SAG", "RPI", "BPI"]
         massey_filtered = massey_df[
@@ -241,20 +236,15 @@ def compute_seasonal_stats(twoteam_level, massey_df=True, elo_df=None, sos_df=No
             "Season_x": "Season"
         })
         pairs_a = set(
-            zip(season_aggs["Season"], season_aggs["TeamID"])
-        )
+            zip(season_aggs["Season"], season_aggs["TeamID"]))
 
         pairs_b = set(
-            zip(massey_pivot["Season"], massey_pivot["TeamID"])
-        )
+            zip(massey_pivot["Season"], massey_pivot["TeamID"]))
 
         common_pairs = pairs_a.intersection(pairs_b)
-        print("Common (Season, TeamID) pairs:",len(common_pairs))
-
 
         season_aggs = season_aggs.merge(massey_pivot, on=["TeamID", "Season"], how="left", indicator=True)
-        print(season_aggs["_merge"].value_counts())
-        print(season_aggs)
+
 
     if elo_df is not None:
         season_aggs = season_aggs.merge(elo_df, on=["TeamID", "Season"], how="left")
@@ -271,39 +261,59 @@ def build_hist_seed_wp(twoteam_level, teamid_seed):
     Historical win probability based on SeedDiff.
     Uses NCAA games from twoteam_level.
     """
+    print(teamid_seed.columns)
+    print(twoteam_level.columns)
 
+    teamid_seed["num_seed"] = teamid_seed["Seed"].apply(seed_to_features)
     # Merge seeds into game rows
-    df = twoteam_level.merge(
+    twoteam_level = twoteam_level.merge(
         teamid_seed[["Season", "TeamID", "num_seed"]],
         on=["Season", "TeamID"],
         how="left"
     )
 
-    df = df.merge(
-        teamid_seed[["Season", "TeamID", "num_seed"]],
-        left_on=["Season", "OpponentID"],
-        right_on=["Season", "TeamID"],
-        how="left",
-        suffixes=("_team", "_opp")
+    seed_opp = teamid_seed.rename(
+        columns={"TeamID": "OpponentID",
+                 "num_seed": "num_seed_opp"}
     )
 
-    # Keep NCAA games only
-    df = df[df["Seasontype"] == "NCAA"].copy()
+    twoteam_level = twoteam_level.merge(
+        seed_opp[["Season", "OpponentID", "num_seed_opp"]],
+        left_on=["Season", "OpponentID"],
+        right_on=["Season", "OpponentID"],
+        how="left"
+    )
+    print(twoteam_level.columns)
 
     # Compute seed difference
-    df["SeedDiff"] = (
-        df["num_seed_team"] -
-        df["num_seed_opp"]
+    twoteam_level["SeedDiff"] = (
+        twoteam_level["num_seed"] -
+        twoteam_level["num_seed_opp"]
     )
 
     # Win column already exists
     hist_seed_wp = (
-        df.groupby("SeedDiff")["Win"]
+        twoteam_level.groupby("SeedDiff")["Win"]
         .mean()
         .to_dict()
     )
+    pd.DataFrame(
+        list(hist_seed_wp.items()),
+        columns=["SeedDiff", "HistSeedWP"]
+    ).to_csv("seeddiff_to_HistSeedWP.csv", index=False)
+    # return a dict (map) {-15.0: 0.989010989010989, -14.0: 1.0, -13.0: 0.9336734693877551 etc.
 
-    return hist_seed_wp
+
+    twoteam_level["HistSeedWP"] = (
+        twoteam_level["SeedDiff"]
+        .map(hist_seed_wp)
+    )
+    twoteam_level["HistSeedWP"] = (
+        twoteam_level["HistSeedWP"]
+        .fillna(0.5)
+    )
+
+    return twoteam_level
 
 
 MRegulargames = pd.read_csv("data/MRegularSeasonDetailedResults.csv")
@@ -313,6 +323,7 @@ MTeams = pd.read_csv("data/MTeams.csv")
 MMasseyOrdinals = pd.read_csv("data/MMasseyOrdinals.csv")
 
 if __name__ == "__main__":
+    print(MRegulargames.shape)
     #print(MMasseyOrdinals)
     #MRegularSeasonDetailedResults = pd.read_csv("data/MRegularSeasonDetailedResults.csv")
     #MRegularSeasonDetailedResults = pd.read_csv("data/MRegularSeasonDetailedResults.csv")
@@ -363,13 +374,14 @@ if __name__ == "__main__":
         ["TeamID", "Season", "Seasontype", "DayNum"]
     )
 
+
+
     teamid_seed["num_seed"] = teamid_seed["Seed"].apply(seed_to_features)
-    team_season_stats = compute_seasonal_stats(twoteam_level, teamid_seed, MMasseyOrdinals)
+    twoteam_level = build_hist_seed_wp(twoteam_level, teamid_seed)
+    print(twoteam_level.columns)
+    team_season_stats = compute_seasonal_stats(twoteam_level, MMasseyOrdinals)
 
-    build_hist_seed_wp(twoteam_level, teamid_seed)
-
-
-    #team_season_stats.to_csv("perteam_perseason_stats.csv")
+    team_season_stats.to_csv("perteam_perseason_stats.csv")
     """ ####################################################### """
 
     #print(team_season_stats)

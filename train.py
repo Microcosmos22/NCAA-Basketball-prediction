@@ -5,15 +5,19 @@ import pandas as pd
 import tensorflow as tf
 from tqdm.auto import tqdm
 
-team_season_stats = pd.read_csv(".data/perteam_perseason_stats.csv")
-
-
+team_season_stats = pd.read_csv("perteam_perseason_stats.csv")
 
 def match_features_fromIDs(teamID1, teamID2, season, team_season_stats, elo_df=None, massey_df=None, sos_df=None, seed_df=None):
     """
     Compute matchup-level feature vector using non-rolling, season-level stats.
     Includes: Season aggregates, Elo, Massey, SOS, Seed features.
     """
+    hist_df = pd.read_csv("seeddiff_to_HistSeedWP.csv")
+
+    hist_seed_wp = dict(
+        zip(hist_df["SeedDiff"],
+            hist_df["HistSeedWP"])
+    )
 
     # Get last completed season stats for each team
     team_a_stats = team_season_stats.query(
@@ -31,10 +35,11 @@ def match_features_fromIDs(teamID1, teamID2, season, team_season_stats, elo_df=N
     # Base season aggregates
     match_features = {
         "SeedDiff": team_a_stats["num_seed"].values[0] - team_b_stats["num_seed"].values[0],
+        "HistSeedWP": float(hist_df[hist_df["SeedDiff"] == (team_a_stats["num_seed"].values[0] - team_b_stats["num_seed"].values[0])]),
         "SeedDiff_sq": (team_a_stats["num_seed"].values[0] - team_b_stats["num_seed"].values[0])**2,
-        "AbsDiff_Seed": (team_a_stats["num_seed"].values[0] - team_b_stats["num_seed"].values[0]).abs(),
-        "NetRtgDiff": (team_a_stats["NetRtg_A"] - team_b_stats["NetRtg_B"]),
-        "SeedDiff_x_NetRtg": (team_a_stats["num_seed"].values[0] - team_b_stats["num_seed"].values[0])*(team_a_stats["NetRtg_A"] - team_b_stats["NetRtg_B"]),
+        "AbsDiff_Seed": np.abs(team_a_stats["num_seed"].values[0] - team_b_stats["num_seed"].values[0]),
+        "NetRtgDiff": float(team_a_stats["NetRtg"] - team_b_stats["NetRtg"]),
+        "SeedDiff_x_NetRtg": float(team_a_stats["num_seed"].values[0] - team_b_stats["num_seed"].values[0])*(team_a_stats["NetRtg"] - team_b_stats["NetRtg"]),
 
         "PointsForDiff": team_a_stats["PointsFor"].values[0] - team_b_stats["PointsFor"].values[0],
         "PointsAgainstDiff": team_a_stats["PointsAgainst"].values[0] - team_b_stats["PointsAgainst"].values[0],
@@ -56,14 +61,14 @@ def match_features_fromIDs(teamID1, teamID2, season, team_season_stats, elo_df=N
         # Rebounds and assists
         "OR_diff": team_a_stats["OR"].values[0] - team_b_stats["OR"].values[0],
         "DR_diff": team_a_stats["DR"].values[0] - team_b_stats["DR"].values[0],
-        "Ast_diff": team_a_stats.get("Ast", 0).values[0] - team_b_stats.get("Ast", 0).values[0],
+        #"Ast_diff": team_a_stats.get("Ast", 0).values[0] - team_b_stats.get("Ast", 0).values[0],
 
         # Turnovers / fouls
         "TO_diff": team_a_stats["TO"].values[0] - team_b_stats["TO"].values[0],
-        "PF_diff": team_a_stats.get("PF", 0).values[0] - team_b_stats.get("PF", 0).values[0],
+        #"PF_diff": team_a_stats.get("PF", 0).values[0] - team_b_stats.get("PF", 0).values[0],
 
         # Home advantage
-        "HomeTeam": 1 if team_a_stats.get("WLoc", "N").values[0] == "H" else 0,
+        #"HomeTeam": 1 if team_a_stats.get("WLoc", "N").values[0] == "H" else 0,
     }
 
     # Elo difference
@@ -100,7 +105,7 @@ def match_features_fromIDs(teamID1, teamID2, season, team_season_stats, elo_df=N
 
 if __name__ == "__main__":
     import re
-    N = 1
+    N = 100
 
     Mgames = pd.concat([MRegulargames, MNCAAgames])[["Season", "DayNum", "WTeamID", "LTeamID"]][:N]
     Mgameswon = Mgames.rename(columns={"WTeamID":"Team1ID", "LTeamID":"Team2ID"})
@@ -118,13 +123,15 @@ if __name__ == "__main__":
     X_list = []
     y_list = []
 
+
     for i in range(len(Mgamestrain)):
         row = Mgamestrain.iloc[i]
 
         features = match_features_fromIDs(
             row["Team1ID"],
             row["Team2ID"],
-            row["Season"]
+            row["Season"],
+            team_season_stats
         )
 
         if features.empty:
@@ -133,7 +140,7 @@ if __name__ == "__main__":
         X_list.append(features.iloc[0])  # append row, not DataFrame
         y_list.append(row["Win"])
 
-    X = pd.DataFrame(X_list).drop(columns=["Seasontype"])
+    X = pd.DataFrame(X_list)#.drop(columns=["Seasontype"])
     X.columns = [
         re.sub(r'[^A-Za-z0-9_]+', '_', col)
         for col in X.columns
